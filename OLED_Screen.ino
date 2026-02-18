@@ -93,13 +93,13 @@ const byte PROGMEM sad_face[][288] = {
 };
 
 // Screen setup
-const unsigned long SCREEN_INTERVAL = 10000; // 3 seconds per screen
+const unsigned long SCREEN_INTERVAL = 3000; // 3 seconds per screen
 unsigned long lastSwitch = 0;
 uint8_t currentScreen = 0;
-const uint8_t NUM_SCREENS = 3; // How many different layout you have
+const uint8_t NUM_SCREENS = 4; // How many different layout you have
 int frame = 0;
 
-const int daysGoalReached = 2;
+int daysGoalReached = 0;
 
 void drawScreen0() {
   display.clearDisplay();
@@ -122,7 +122,7 @@ void drawScreen0() {
 }
 
 //Change to step counter
-void drawScreen1(int currentAct) {
+void drawScreen1(int currentAct, Sensor stepCounter) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setCursor(0,0);
@@ -132,6 +132,9 @@ void drawScreen1(int currentAct) {
   } else {
     display.println("---");
   }
+  display.setCursor(0, 20);
+  display.println("Steps: ");
+  display.println(stepCounter.value());
   display.display();
   nicla::leds.setColor(red);
   Serial.print("Changed to red");
@@ -149,9 +152,18 @@ void drawScreen2(int isTouching, int skinRaw) {
   nicla::leds.setColor(blue);
 }
 
-void drawScreen3() {
+void drawScreen3(int hours, int totalHours) {
   // Display how many hours that they have had it on
-  
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.println("Hours worn: ");
+  display.setTextSize(2);
+  display.print(hours);
+  display.print(" / ");
+  display.print(totalHours);
+  display.display();
+  nicla::leds.setColor(yellow);
 }
 
 void setup() {
@@ -197,6 +209,10 @@ void loop() {
   int skinRaw = analogRead(A0);
   bool isTouching = (skinRaw > 200);
   int currentAct = activity.value();
+  int hours = 2; 
+  int totalHours = 4;
+  Sensor stepCounter(SENSOR_ID_STC);
+  stepCounter.begin();
 
   // updateTouchStats(isTouching);
   // Rotate screens by time
@@ -208,8 +224,9 @@ void loop() {
 
   switch (currentScreen) {
     case 0: drawScreen0(); break;
-    case 1: drawScreen1(currentAct); break;
+    case 1: drawScreen1(currentAct, stepCounter); break;
     case 2: drawScreen2(isTouching, skinRaw); break;
+    case 3: drawScreen3(hours, totalHours); break;
   }
 
   if (BLE.connected()) {
