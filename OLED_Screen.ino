@@ -20,6 +20,7 @@ BLEUnsignedIntCharacteristic gasCharacteristic(BLE_SENSE_UUID("9003"), BLERead |
 
 // Sensors
 SensorActivity activity(SENSOR_ID_AR);
+Sensor stepCounter(SENSOR_ID_STC); // Built-in step counter
 
 // Activity Labels for OLED
 const char* activityLabels[] = {"Still End", "Walk End", "Run End", "Bike End", "Car End", "Tilt End", "InVehStillEnd", "", "Still Start", "Walk Start", "Run Start", "Bike Start", "Car Start", "Tilt Start", "InVehStillStart", ""};
@@ -122,7 +123,7 @@ void drawScreen0() {
 }
 
 //Change to step counter
-void drawScreen1(int currentAct, Sensor stepCounter) {
+void drawScreen1(int currentAct, int steps) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setCursor(0,0);
@@ -134,7 +135,7 @@ void drawScreen1(int currentAct, Sensor stepCounter) {
   }
   display.setCursor(0, 20);
   display.println("Steps: ");
-  display.println(stepCounter.value());
+  display.println(steps);
   display.display();
   nicla::leds.setColor(red);
   Serial.print("Changed to red");
@@ -172,6 +173,7 @@ void setup() {
   // Initialize Nicla
   nicla::begin();
   nicla::leds.begin();
+  stepCounter.begin(); // Enables and starts step counting
 
   // Initialize OLED
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
@@ -211,8 +213,7 @@ void loop() {
   int currentAct = activity.value();
   int hours = 2; 
   int totalHours = 4;
-  Sensor stepCounter(SENSOR_ID_STC);
-  stepCounter.begin();
+  int steps = stepCounter.value();
 
   // updateTouchStats(isTouching);
   // Rotate screens by time
@@ -224,7 +225,7 @@ void loop() {
 
   switch (currentScreen) {
     case 0: drawScreen0(); break;
-    case 1: drawScreen1(currentAct, stepCounter); break;
+    case 1: drawScreen1(currentAct, steps); break;
     case 2: drawScreen2(isTouching, skinRaw); break;
     case 3: drawScreen3(hours, totalHours); break;
   }
