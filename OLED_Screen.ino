@@ -22,6 +22,16 @@ BLEUnsignedIntCharacteristic gasCharacteristic(BLE_SENSE_UUID("9003"), BLERead |
 SensorActivity activity(SENSOR_ID_AR);
 Sensor stepCounter(SENSOR_ID_STC); // Built-in step counter
 
+struct StepSample {
+  uint32_t t_minutes;
+  uint32_t steps;
+};
+
+const size_t MAX_RECORDS = 64; // ~5 hours at 5 min intervals
+StepSample stepLog[MAX_RECORDS];
+size_t writeIdx = 0;
+bool bufferFull = false;
+
 // Activity Labels for OLED
 const char* activityLabels[] = {"Still End", "Walk End", "Run End", "Bike End", "Car End", "Tilt End", "InVehStillEnd", "", "Still Start", "Walk Start", "Run Start", "Bike Start", "Car Start", "Tilt Start", "InVehStillStart", ""};
 
@@ -123,7 +133,7 @@ void drawScreen0() {
 }
 
 //Change to step counter
-void drawScreen1(int currentAct, int steps) {
+void drawScreen1(int currentAct, uint32_t steps) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setCursor(0,0);
@@ -138,7 +148,6 @@ void drawScreen1(int currentAct, int steps) {
   display.println(steps);
   display.display();
   nicla::leds.setColor(red);
-  Serial.print("Changed to red");
 }
 
 void drawScreen2(int isTouching, int skinRaw) {
@@ -170,6 +179,14 @@ void drawScreen3(int hours, int totalHours) {
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
+  while(!Serial);
+  if(!BLE.begin()){
+    Serial.println("BLE Start failed");
+    while(1);
+  }
+  
+  BHY2.begin(NICLA_STANDALONE);
+
   // Initialize Nicla
   nicla::begin();
   nicla::leds.begin();
@@ -185,7 +202,6 @@ void setup() {
   display.display();
 
   // Initialize Bosch Sensor Hub
-  BHY2.begin(NICLA_STANDALONE);
   activity.begin();
 
   // Setup BLE
@@ -208,12 +224,38 @@ void loop() {
   // put your main code here, to run repeatedly:
   BHY2.update();
 
+  static uint32_t lastPrint = 0;
+  const uint32_t LOG_INTERVAL = 1 * 60 * 1000;
   int skinRaw = analogRead(A0);
   bool isTouching = (skinRaw > 200);
   int currentAct = activity.value();
   int hours = 2; 
   int totalHours = 4;
-  int steps = stepCounter.value();
+  uint32_t steps = (uint32_t)stepCounter.value();
+ 
+  if (millis() - lastPrint >= LOG_INTERVAL) {
+    lastPrint = millis();
+    uint32_t minutes = millis()/60000;
+
+    stepLog[writeIdx] = {minutes, steps};
+    writeIdx = (writeIdx + 1) % MAX_RECORDS;
+    if(writeIdx == 0) bufferFull = true;
+  }
+
+  if(Serial.available()) {
+    char cmd = Serial.read();
+    if (cmd == 'D') dumpCSV();
+    else if (cmd == 'S') {
+      Serial.print("\nt_min,steps\n");
+      Serial.print(millis()/60000); Serial.print(",");
+      Serial.print(steps); Serial.println("\nEND\n");
+    }
+    else if (cmd == 'R') {
+      writeIdx = 0;
+      bufferFull = false;
+      Serial.println("Log reset");
+    }
+  }
 
   // updateTouchStats(isTouching);
   // Rotate screens by time
@@ -234,4 +276,17 @@ void loop() {
     co2Characteristic.writeValue((uint32_t)currentAct);
     gasCharacteristic.writeValue((uint32_t)skinRaw);
   }
+}
+
+void dumpCSV() {
+  size_t count = bufferFull ? MAX_RECORDS : writeIdx;
+  Serial.println("t_minutes,steps_total");
+
+  size_t idx = bufferFull ? writeIdx : 0;
+  for (size_t i = 0; i < count; i++) {
+    Serial.print(stepLog[idx].t_minutes); Serial.print(","); 
+    Serial.println(stepLog[idx].steps);
+    idx = (idx + 1) % MAX_RECORDS;
+  }
+  Serial.println("---");
 }
