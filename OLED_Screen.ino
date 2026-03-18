@@ -21,16 +21,38 @@ BLEUnsignedIntCharacteristic gasCharacteristic(BLE_SENSE_UUID("9003"), BLERead |
 // Sensors
 SensorActivity activity(SENSOR_ID_AR);
 Sensor stepCounter(SENSOR_ID_STC); // Built-in step counter
+SensorXYZ accel(SENSOR_ID_ACC);
+Sensor temp(SENSOR_ID_TEMP); // BME688 temp
+float tempValue = 0;
+Sensor pressure(SENSOR_ID_BARO);
+float pressureValue = 0;
 
-struct StepSample {
-  uint32_t t_minutes;
-  uint32_t steps;
+struct CompleteLog {
+  uint16_t t_minutes;
+  uint16_t steps;
+  uint16_t sd_vm_x100;
+  uint8_t worn_accel:1; 
+  float temp_c;
+  float temp_delta;
+  uint8_t worn_temp:1;
+  uint16_t press_hpa; //Current pressure hPa
+  uint8_t worn_press:1;
+  uint8_t worn_total:1;
 };
 
 const size_t MAX_RECORDS = 64; // ~5 hours at 5 min intervals
-StepSample stepLog[MAX_RECORDS];
+CompleteLog dataLog[MAX_RECORDS];
 size_t writeIdx = 0;
 bool bufferFull = false;
+const uint32_t LOG_INTERVAL = 1 * 60 * 1000;
+
+// Accelorometer
+#define N_SAMPLES 200 // 60s X 26Hz
+
+float vm_buffer[N_SAMPLES];
+int idx = 0;
+bool buffer_full = false;
+int totalHours = 4;
 
 // Activity Labels for OLED
 const char* activityLabels[] = {"Still End", "Walk End", "Run End", "Bike End", "Car End", "Tilt End", "InVehStillEnd", "", "Still Start", "Walk Start", "Run Start", "Bike Start", "Car Start", "Tilt Start", "InVehStillStart", ""};
@@ -106,7 +128,10 @@ const byte PROGMEM sad_face[][288] = {
 // Screen setup
 const unsigned long SCREEN_INTERVAL = 3000; // 3 seconds per screen
 unsigned long lastSwitch = 0;
-uint8_t currentScreen = 0;
+const int BUTTON_PIN = 5;
+volatile int currentScreen = 0;
+volatile unsigned long lastButtonPress = 0;
+const unsigned long DEBOUNCE_TIME = 200; //200ms debounce
 const uint8_t NUM_SCREENS = 4; // How many different layout you have
 int frame = 0;
 
@@ -150,26 +175,29 @@ void drawScreen1(int currentAct, uint32_t steps) {
   nicla::leds.setColor(red);
 }
 
-void drawScreen2(int isTouching, int skinRaw) {
+void drawScreen2() {
+  int hardIsTouching = 1;
+  int hardSkinRaw = 2;
   display.clearDisplay();
   display.setTextSize(1);
   display.setCursor(0,0);
   display.print("Contact: ");
-  display.println(isTouching ? "TOUCHING" : "REMOVED");
+  display.println(hardIsTouching ? "TOUCHING" : "REMOVED");
   display.println("Bio-Signal: ");
-  display.println(skinRaw);
+  display.println(hardSkinRaw);
   display.display();
   nicla::leds.setColor(blue);
 }
 
-void drawScreen3(int hours, int totalHours) {
+void drawScreen3() {
+  int hardHours = 2;
   // Display how many hours that they have had it on
   display.clearDisplay();
   display.setTextSize(1);
   display.setCursor(0,0);
   display.println("Hours worn: ");
   display.setTextSize(2);
-  display.print(hours);
+  display.print(hardHours);
   display.print(" / ");
   display.print(totalHours);
   display.display();
@@ -184,13 +212,16 @@ void setup() {
     Serial.println("BLE Start failed");
     while(1);
   }
-  
+
   BHY2.begin(NICLA_STANDALONE);
 
   // Initialize Nicla
   nicla::begin();
   nicla::leds.begin();
   stepCounter.begin(); // Enables and starts step counting
+  accel.begin();
+  temp.begin();
+  pressure.begin();
 
   // Initialize OLED
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
@@ -218,42 +249,104 @@ void setup() {
 
   // Set Analog Resolution for better skin detection (0-1023)
   analogReadResolution(10);
+  
+  pinMode(BUTTON_PIN, INPUT_PULLUP);  // Using internal pull-up
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButtonPress, FALLING);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
   BHY2.update();
 
-  static uint32_t lastPrint = 0;
-  const uint32_t LOG_INTERVAL = 1 * 60 * 1000;
   int skinRaw = analogRead(A0);
   bool isTouching = (skinRaw > 200);
   int currentAct = activity.value();
   int hours = 2; 
-  int totalHours = 4;
+
+  static uint32_t lastPrint = 0;
   uint32_t steps = (uint32_t)stepCounter.value();
- 
+  tempValue = temp.value();
+  pressureValue = pressure.value(); 
+
+  calculateAccel();
+
   if (millis() - lastPrint >= LOG_INTERVAL) {
     lastPrint = millis();
     uint32_t minutes = millis()/60000;
 
-    stepLog[writeIdx] = {minutes, steps};
+    // == ACCEL WEAR ==
+    float sum = 0;
+    for(int i = 0; i < N_SAMPLES; i++) sum += vm_buffer[i];
+    float mean = sum / N_SAMPLES;
+
+    float variance = 0;
+    for(int i = 0; i < N_SAMPLES; i++) {
+      float diff = vm_buffer[i] - mean;
+      variance += diff * diff;
+    }
+    float sd_vm = sqrt(variance / (N_SAMPLES - 1));
+    bool worn_accel = (sd_vm > 0.015) && (sd_vm < 2.5);
+    uint16_t sd_vm_x100 = (uint16_t)(sd_vm * 10000);
+    Serial.print("\nSD_VM "); Serial.print(sd_vm); Serial.print(" variance "); Serial.print(variance);
+
+    // == TEMP WEAR (1 degree test) ==
+    static float baseline_temp = 0;
+    float current_temp = tempValue;
+
+    // == PRESSURE WEAR ==
+    static float baseline_press = 0;
+    float current_press = pressureValue;
+
+    // Auto-baseline every 10 minutes OR first run
+    static unsigned long baseline_time = 0;
+    if (baseline_time == 0 || minutes - (baseline_time/60000) > 10) {
+      baseline_temp = current_temp;
+      baseline_press = current_press;
+      baseline_time = millis();
+    }
+
+    float temp_delta = current_temp - baseline_temp;
+    bool worn_temp = (temp_delta > 1.0); // Temp delta test: for minutes
+    static int worn_temp_count = 0;
+    if (worn_temp) worn_temp_count++;
+
+    float press_delta = current_press - baseline_press;
+    bool worn_press = (press_delta > 0.15);
+    static int worn_press_count = 0;
+    if (worn_press) worn_press_count++;
+
+
+    // == Multi-sensor consensus ==
+    bool firstCondition = (worn_accel && worn_temp);
+    bool secondCondition = (worn_accel && worn_press);
+    bool thirdCondition = (worn_temp && worn_press);
+
+    bool overall_worn = firstCondition || secondCondition || thirdCondition;
+    Serial.println("\nCounts: "); Serial.print(worn_temp_count); Serial.print(worn_press_count);
+    Serial.print("Conditions: A T P 1 2 Total\n"); Serial.print(worn_accel); Serial.print(worn_temp); Serial.print(worn_press); Serial.print(firstCondition); Serial.print(secondCondition); Serial.print(overall_worn);
+
+    // == Store unified log ==
+    dataLog[writeIdx] = {minutes, steps, sd_vm_x100, worn_accel ? 1 : 0, current_temp, temp_delta, worn_temp ? 1 : 0, current_press, worn_press, overall_worn};
     writeIdx = (writeIdx + 1) % MAX_RECORDS;
     if(writeIdx == 0) bufferFull = true;
   }
+
 
   if(Serial.available()) {
     char cmd = Serial.read();
     if (cmd == 'D') dumpCSV();
     else if (cmd == 'S') {
-      Serial.print("\nt_min,steps\n");
+      Serial.print("\nt_min,steps,temp\n");
       Serial.print(millis()/60000); Serial.print(",");
-      Serial.print(steps); Serial.println("\nEND\n");
+      Serial.print(steps); Serial.print(", ");
+      Serial.print(tempValue); Serial.println("\nEND\n");
     }
-    else if (cmd == 'R') {
-      writeIdx = 0;
-      bufferFull = false;
-      Serial.println("Log reset");
+    else if (cmd == 'P') {
+      Serial.print("\nPressure\n");
+      Serial.print(pressureValue);
+    }
+    else if (cmd == 'A') {
+      Serial.print("\nSD_VM\n");
     }
   }
 
@@ -268,25 +361,94 @@ void loop() {
   switch (currentScreen) {
     case 0: drawScreen0(); break;
     case 1: drawScreen1(currentAct, steps); break;
-    case 2: drawScreen2(isTouching, skinRaw); break;
-    case 3: drawScreen3(hours, totalHours); break;
+    case 2: drawScreen2(); break;
+    case 3: drawScreen3(); break;
   }
 
   if (BLE.connected()) {
     co2Characteristic.writeValue((uint32_t)currentAct);
     gasCharacteristic.writeValue((uint32_t)skinRaw);
   }
+
+  delay(1000);
 }
 
 void dumpCSV() {
   size_t count = bufferFull ? MAX_RECORDS : writeIdx;
-  Serial.println("t_minutes,steps_total");
+  Serial.println("t_minutes, steps_total, sd_vm_x100, worn_accel, temp_c, temp_delta, worn_temp, press_c, worn_press, worn_total");
 
   size_t idx = bufferFull ? writeIdx : 0;
   for (size_t i = 0; i < count; i++) {
-    Serial.print(stepLog[idx].t_minutes); Serial.print(","); 
-    Serial.println(stepLog[idx].steps);
+    Serial.print(dataLog[idx].t_minutes); Serial.print(","); 
+    Serial.print(dataLog[idx].steps); Serial.print(","); 
+    Serial.print(dataLog[idx].sd_vm_x100); Serial.print(",");
+    Serial.print(dataLog[idx].worn_accel); Serial.print(","); 
+    Serial.print(dataLog[idx].temp_c); Serial.print(",");
+    Serial.print(dataLog[idx].temp_delta); Serial.print(","); 
+    Serial.print(dataLog[idx].worn_temp); Serial.print(",");
+    Serial.print(dataLog[idx].press_hpa); Serial.print(","); 
+    Serial.print(dataLog[idx].worn_press); Serial.print(","); 
+    Serial.println(dataLog[idx].worn_total);
     idx = (idx + 1) % MAX_RECORDS;
   }
   Serial.println("---");
 }
+
+void calculateAccel() {
+  float g = 1000.0f;
+
+  // Read values
+  float x = accel.x() / g; // milli-g -> g
+  float y = accel.y() / g;
+  float z = accel.z() / g;
+  float vm = sqrt(x*x + y*y + z*z); // Vector magnitude
+
+  vm_buffer[idx] = vm;
+  idx = (idx + 1) % N_SAMPLES;
+  if (idx == 0) buffer_full = true;
+
+  if (buffer_full) {
+    float sum = 0, sum_sq = 0;
+    for (int i = 0; i < N_SAMPLES; i++) {
+      float v = vm_buffer[i];
+      //sum += v;
+      //sum_sq += v * v;
+    }
+    //Serial.println("Sum"); Serial.print(sum); Serial.print(" sum_sq "); Serial.print(sum_sq);
+    //float mean = sum / N_SAMPLES;
+    //float sd_vm = sqrt( (sum_sq / N_SAMPLES) - (mean * mean) ); // Population SD approx
+
+    //bool A_on = (sd_vm > 0.015) && (sd_vm < 1.5); // Threshold for wearing
+    //Serial.print("SD_VM: "); Serial.print(sd_vm, 4);
+    //Serial.print(" | Worn: "); Serial.println(A_on ? "YES" : "NO");
+  }
+}
+
+
+// Potential button idk?
+void handleButtonPress() {
+  unsigned long currentTime = millis();
+  Serial.print("handleButtonPress");
+  
+  if (currentTime - lastButtonPress > DEBOUNCE_TIME) {
+    currentScreen++;
+    if (currentScreen >= NUM_SCREENS) {
+      currentScreen = 0;
+    }
+    lastButtonPress = currentTime;
+    //updateDisplay();
+  }
+}
+
+// void updateDisplay() {
+//  display.clearDisplay();  // Clear the screen
+  //Serial.print("CALLED BUTTON");
+  //switch (currentScreen) {
+    //case 0: drawScreen0(); break;
+    //case 1: drawScreen1(); break;
+    //case 2: drawScreen2(); break;
+  //  case 3: drawScreen3(); break;
+  //}
+  
+  //display.display();  // Push to the physical display
+//}
