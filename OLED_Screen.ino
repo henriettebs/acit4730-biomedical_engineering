@@ -5,6 +5,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+
 // OLED Setup
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -38,6 +39,12 @@ struct CompleteLog {
   uint16_t press_hpa; //Current pressure hPa
   uint8_t worn_press:1;
   uint8_t worn_total:1;
+};
+
+struct TemperatureLog {
+  uint16_t t_max;
+  uint16_t t_curr;
+  uint16_t t_min;
 };
 
 const size_t MAX_RECORDS = 64; // ~5 hours at 5 min intervals
@@ -175,29 +182,26 @@ void drawScreen1(int currentAct, uint32_t steps) {
   nicla::leds.setColor(red);
 }
 
-void drawScreen2() {
-  int hardIsTouching = 1;
-  int hardSkinRaw = 2;
+void drawScreen2(int isTouching, int skinRaw) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setCursor(0,0);
   display.print("Contact: ");
-  display.println(hardIsTouching ? "TOUCHING" : "REMOVED");
+  display.println(isTouching ? "TOUCHING" : "REMOVED");
   display.println("Bio-Signal: ");
-  display.println(hardSkinRaw);
+  display.println(skinRaw);
   display.display();
   nicla::leds.setColor(blue);
 }
 
-void drawScreen3() {
-  int hardHours = 2;
+void drawScreen3(int hours) {
   // Display how many hours that they have had it on
   display.clearDisplay();
   display.setTextSize(1);
   display.setCursor(0,0);
   display.println("Hours worn: ");
   display.setTextSize(2);
-  display.print(hardHours);
+  display.print(hours);
   display.print(" / ");
   display.print(totalHours);
   display.display();
@@ -322,8 +326,8 @@ void loop() {
     bool thirdCondition = (worn_temp && worn_press);
 
     bool overall_worn = firstCondition || secondCondition || thirdCondition;
-    Serial.println("\nCounts: "); Serial.print(worn_temp_count); Serial.print(worn_press_count);
-    Serial.print("Conditions: A T P 1 2 Total\n"); Serial.print(worn_accel); Serial.print(worn_temp); Serial.print(worn_press); Serial.print(firstCondition); Serial.print(secondCondition); Serial.print(overall_worn);
+    //Serial.println("\nCounts: "); Serial.print(worn_temp_count); Serial.print(worn_press_count);
+    //Serial.print("Conditions: A T P 1 2 Total\n"); Serial.print(worn_accel); Serial.print(worn_temp); Serial.print(worn_press); Serial.print(firstCondition); Serial.print(secondCondition); Serial.print(overall_worn);
 
     // == Store unified log ==
     dataLog[writeIdx] = {minutes, steps, sd_vm_x100, worn_accel ? 1 : 0, current_temp, temp_delta, worn_temp ? 1 : 0, current_press, worn_press, overall_worn};
@@ -361,8 +365,8 @@ void loop() {
   switch (currentScreen) {
     case 0: drawScreen0(); break;
     case 1: drawScreen1(currentAct, steps); break;
-    case 2: drawScreen2(); break;
-    case 3: drawScreen3(); break;
+    case 2: drawScreen2(isTouching, skinRaw); break;
+    case 3: drawScreen3(hours); break;
   }
 
   if (BLE.connected()) {
