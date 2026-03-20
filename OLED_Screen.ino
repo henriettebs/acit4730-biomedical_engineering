@@ -263,7 +263,7 @@ void loop() {
   BHY2.update();
 
   int skinRaw = analogRead(A0);
-  bool isTouching = (skinRaw > 200);
+  bool isTouching = (skinRaw > 50);
   int currentAct = activity.value();
   int hours = 2; 
 
