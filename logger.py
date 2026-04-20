@@ -5,7 +5,7 @@ from bleak import BleakClient
 
 # --- CONFIGURATION ---
 # Your specific Nicla Sense ME address found from the scan
-DEVICE_ADDRESS = "A8:5B:66:79:44:77"
+DEVICE_ADDRESS = "4208B80C-313B-6189-4558-9F69DC32277B"
 
 # This UUID must match your Arduino BLE characteristic
 DATA_CHAR_UUID = "19b10001-e8f2-537e-4f6c-d104768a1214"
