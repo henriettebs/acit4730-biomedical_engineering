@@ -1,23 +1,22 @@
-#include "Nicla_OLED.h"
-#include "Nicla_System.h"
+#include "Nicla_OLED.h" // Header file
+#include "Nicla_System.h" // Built-in commands
 #include <stdint.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-#include <Wire.h>
+#include <Adafruit_GFX.h> // Graphics core library for drawing animations and progress bar
+#include <Adafruit_SSD1306.h> // Library needed for OLED SSD1306
+#include <Wire.h> // Library for using I2C (Inter-Integrated Circuit) for connecting to OLED SDA and SCL ports
 
-// OLED config (from your paste.txt)
+// --- SCREEN SETUP ---
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
-Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-
-// Paste animation data from paste.txt here
+// --- ANIMATION SETUP ---
 #define FRAMEDELAY 42
 #define FRAMEWIDTH 48
 #define FRAMEHEIGHT 48
-#define FRAMECOUNT (sizeof(frames) / sizeof(frames[0]))
-const byte PROGMEM frames[][288] = {
+#define FRAMECOUNT (sizeof(starAnimation) / sizeof(starAnimation[0]))
+const byte PROGMEM starAnimation[][288] = {
   {0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,128,0,0,0,0,1,128,0,0,0,0,3,128,0,0,0,0,3,192,0,0,0,0,3,192,0,0,0,0,7,96,0,0,0,0,6,96,0,0,0,0,14,96,0,0,0,0,14,48,0,0,0,0,12,48,0,0,0,0,28,56,0,0,0,0,24,24,0,0,0,0,56,24,0,0,0,0,56,12,0,0,0,0,48,14,0,0,127,255,240,15,255,254,63,255,224,7,255,252,30,0,0,0,0,120,15,0,0,0,0,240,7,128,0,0,1,224,1,192,0,0,3,128,0,224,0,0,7,0,0,120,0,0,30,0,0,60,0,0,60,0,0,30,0,0,112,0,0,7,0,0,224,0,0,3,0,0,192,0,0,3,0,0,192,0,0,7,0,0,224,0,0,6,0,0,96,0,0,6,0,0,96,0,0,14,1,128,96,0,0,14,3,192,48,0,0,12,15,240,48,0,0,12,30,120,48,0,0,28,120,30,48,0,0,28,240,15,152,0,0,27,192,3,216,0,0,31,128,1,248,0,0,62,0,0,120,0,0,56,0,0,60,0,0,48,0,0,12,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
   {0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,128,0,0,0,0,1,128,0,0,0,0,3,128,0,0,0,0,3,192,0,0,0,0,3,192,0,0,0,0,7,96,0,0,0,0,6,96,0,0,0,0,14,96,0,0,0,0,14,48,0,0,0,0,12,48,0,0,0,0,28,56,0,0,0,0,24,24,0,0,0,0,56,24,0,0,0,0,56,12,0,0,0,0,48,14,0,0,127,255,240,15,255,254,63,255,224,7,255,252,30,0,0,0,0,120,15,0,0,0,0,240,7,128,0,0,1,224,1,192,0,0,3,128,0,224,0,0,7,0,0,120,0,0,30,0,0,60,0,0,60,0,0,30,0,0,112,0,0,7,0,0,224,0,0,3,0,0,192,0,0,3,0,0,192,0,0,7,0,0,224,0,0,6,0,0,96,0,0,6,0,0,96,0,0,14,1,128,96,0,0,14,3,192,48,0,0,12,15,240,48,0,0,12,30,120,48,0,0,28,120,30,48,0,0,28,240,15,152,0,0,27,192,3,216,0,0,31,128,1,248,0,0,62,0,0,120,0,0,56,0,0,60,0,0,48,0,0,12,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
   {0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,128,0,0,0,0,1,128,0,0,0,0,3,128,0,0,0,0,3,192,0,0,0,0,3,192,0,0,0,0,7,96,0,0,0,0,6,96,0,0,0,0,14,96,0,0,0,0,14,48,0,0,0,0,12,48,0,0,0,0,28,56,0,0,0,0,24,24,0,0,0,0,56,24,0,0,0,0,56,12,0,0,0,0,48,14,0,0,127,255,240,15,255,254,63,255,224,7,255,252,30,0,0,0,0,120,15,0,0,0,0,240,7,128,0,0,1,224,1,192,0,0,3,128,0,224,0,0,7,0,0,120,0,0,30,0,0,60,0,0,60,0,0,30,0,0,112,0,0,7,0,0,224,0,0,3,0,0,192,0,0,3,0,0,192,0,0,7,0,0,224,0,0,6,0,0,96,0,0,6,0,0,96,0,0,14,1,128,96,0,0,14,3,192,48,0,0,12,15,240,48,0,0,12,30,120,48,0,0,28,120,30,48,0,0,28,240,15,152,0,0,27,192,3,216,0,0,31,128,1,248,0,0,62,0,0,120,0,0,56,0,0,60,0,0,48,0,0,12,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
@@ -47,7 +46,7 @@ const byte PROGMEM frames[][288] = {
   {0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,128,0,0,0,0,1,128,0,0,0,0,3,128,0,0,0,0,3,192,0,0,0,0,3,192,0,0,0,0,7,96,0,0,0,0,6,96,0,0,0,0,14,96,0,0,0,0,14,48,0,0,0,0,12,48,0,0,0,0,28,56,0,0,0,0,24,24,0,0,0,0,56,24,0,0,0,0,56,12,0,0,0,0,48,14,0,0,127,255,240,15,255,254,63,255,224,7,255,252,30,0,0,0,0,120,15,0,0,0,0,240,7,128,0,0,1,224,1,192,0,0,3,128,0,224,0,0,7,0,0,120,0,0,30,0,0,60,0,0,60,0,0,30,0,0,112,0,0,7,0,0,224,0,0,3,0,0,192,0,0,3,0,0,192,0,0,7,0,0,224,0,0,6,0,0,96,0,0,6,0,0,96,0,0,14,1,128,96,0,0,14,3,192,48,0,0,12,15,240,48,0,0,12,30,120,48,0,0,28,120,30,48,0,0,28,240,15,152,0,0,27,192,3,216,0,0,31,128,1,248,0,0,62,0,0,120,0,0,56,0,0,60,0,0,48,0,0,12,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
   {0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,128,0,0,0,0,1,128,0,0,0,0,3,128,0,0,0,0,3,192,0,0,0,0,3,192,0,0,0,0,7,96,0,0,0,0,6,96,0,0,0,0,14,96,0,0,0,0,14,48,0,0,0,0,12,48,0,0,0,0,28,56,0,0,0,0,24,24,0,0,0,0,56,24,0,0,0,0,56,12,0,0,0,0,48,14,0,0,127,255,240,15,255,254,63,255,224,7,255,252,30,0,0,0,0,120,15,0,0,0,0,240,7,128,0,0,1,224,1,192,0,0,3,128,0,224,0,0,7,0,0,120,0,0,30,0,0,60,0,0,60,0,0,30,0,0,112,0,0,7,0,0,224,0,0,3,0,0,192,0,0,3,0,0,192,0,0,7,0,0,224,0,0,6,0,0,96,0,0,6,0,0,96,0,0,14,1,128,96,0,0,14,3,192,48,0,0,12,15,240,48,0,0,12,30,120,48,0,0,28,120,30,48,0,0,28,240,15,152,0,0,27,192,3,216,0,0,31,128,1,248,0,0,62,0,0,120,0,0,56,0,0,60,0,0,48,0,0,12,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
 };
-const byte PROGMEM sadface[][288] = {
+const byte PROGMEM faceAnimation[][288] = {
   {0,0,0,0,0,0,0,0,0,0,0,0,0,0,31,252,0,0,0,0,255,255,0,0,0,3,240,15,224,0,0,15,0,1,240,0,0,28,0,0,124,0,0,120,0,0,30,0,0,240,0,0,15,0,1,193,248,0,3,128,3,135,240,0,1,128,3,143,0,0,1,192,7,28,0,30,0,224,14,56,0,31,224,96,14,48,0,3,252,48,12,0,0,0,124,48,28,0,0,0,0,24,24,0,0,0,0,24,56,0,192,1,128,24,56,3,224,7,192,28,48,7,224,7,192,12,48,3,224,7,224,12,48,3,224,7,192,12,48,3,192,3,128,12,48,0,0,0,0,12,48,0,0,0,0,12,48,0,0,0,0,12,48,0,0,0,0,12,56,0,0,0,0,28,24,0,0,0,0,28,24,0,0,0,0,24,24,0,0,0,0,56,12,0,0,0,0,48,12,0,0,127,128,112,6,0,1,255,192,112,7,0,127,128,128,224,3,129,254,0,1,192,1,128,128,0,1,192,1,192,0,0,3,128,0,240,0,0,15,0,0,120,0,0,30,0,0,62,0,0,56,0,0,15,128,0,240,0,0,7,240,15,192,0,0,0,255,255,0,0,0,0,63,248,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
   {0,0,0,0,0,0,0,0,0,0,0,0,0,0,31,252,0,0,0,0,255,255,0,0,0,3,240,15,224,0,0,15,0,1,240,0,0,28,0,0,124,0,0,120,0,0,30,0,0,240,0,0,15,0,1,193,248,0,3,128,3,135,240,0,1,128,3,143,0,0,1,192,7,28,0,30,0,224,14,56,0,31,224,96,14,48,0,3,252,48,12,0,0,0,124,48,28,0,0,0,0,24,24,0,0,0,0,24,56,0,192,1,128,24,56,3,224,7,192,28,48,7,224,7,192,12,48,3,224,7,224,12,48,3,224,7,192,12,48,3,192,3,128,12,48,0,0,0,0,12,48,0,0,0,0,12,48,0,0,0,0,12,48,0,0,0,0,12,56,0,0,0,0,28,24,0,0,0,0,28,24,0,0,0,0,24,24,0,0,0,0,56,12,0,0,0,0,48,12,0,0,127,128,112,6,0,1,255,192,112,7,0,127,128,128,224,3,129,254,0,1,192,1,128,128,0,1,192,1,192,0,0,3,128,0,240,0,0,15,0,0,120,0,0,30,0,0,62,0,0,56,0,0,15,128,0,240,0,0,7,240,15,192,0,0,0,255,255,0,0,0,0,63,248,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
   {0,0,0,0,0,0,0,0,0,0,0,0,0,0,31,252,0,0,0,0,255,255,0,0,0,3,240,15,224,0,0,15,0,1,240,0,0,28,0,0,124,0,0,120,0,0,30,0,0,240,0,0,15,0,1,193,248,0,3,128,3,135,240,0,1,128,3,143,0,0,1,192,7,28,0,30,0,224,14,56,0,31,224,96,14,48,0,3,252,48,12,0,0,0,124,48,28,0,0,0,0,24,24,0,0,0,0,24,56,0,192,1,128,24,56,3,224,7,192,28,48,7,224,7,192,12,48,3,224,7,224,12,48,3,224,7,192,12,48,3,192,3,128,12,48,0,0,0,0,12,48,0,0,0,0,12,48,0,0,0,0,12,48,0,0,0,0,12,56,0,0,0,0,28,24,0,0,0,0,28,24,0,0,0,0,24,24,0,0,0,0,56,12,0,0,0,0,48,12,0,0,127,128,112,6,0,1,255,192,112,7,0,127,128,128,224,3,129,254,0,1,192,1,128,128,0,1,192,1,192,0,0,3,128,0,240,0,0,15,0,0,120,0,0,30,0,0,62,0,0,56,0,0,15,128,0,240,0,0,7,240,15,192,0,0,0,255,255,0,0,0,0,63,248,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
@@ -78,19 +77,19 @@ const byte PROGMEM sadface[][288] = {
   {0,0,0,0,0,0,0,0,0,0,0,0,0,0,31,252,0,0,0,0,255,255,0,0,0,3,240,15,224,0,0,15,0,1,240,0,0,28,0,0,124,0,0,120,0,0,30,0,0,240,0,0,15,0,1,193,248,0,3,128,3,135,240,0,1,128,3,143,0,0,1,192,7,28,0,30,0,224,14,56,0,31,224,96,14,48,0,3,252,48,12,0,0,0,124,48,28,0,0,0,0,24,24,0,0,0,0,24,56,0,192,1,128,24,56,3,224,7,192,28,48,7,224,7,192,12,48,3,224,7,224,12,48,3,224,7,192,12,48,3,192,3,128,12,48,0,0,0,0,12,48,0,0,0,0,12,48,0,0,0,0,12,48,0,0,0,0,12,56,0,0,0,0,28,24,0,0,0,0,28,24,0,0,0,0,24,24,0,0,0,0,56,12,0,0,0,0,48,12,0,0,127,128,112,6,0,1,255,192,112,7,0,127,128,128,224,3,129,254,0,1,192,1,128,128,0,1,192,1,192,0,0,3,128,0,240,0,0,15,0,0,120,0,0,30,0,0,62,0,0,56,0,0,15,128,0,240,0,0,7,240,15,192,0,0,0,255,255,0,0,0,0,63,248,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
 };
 
-const unsigned long SCREEN_INTERVAL = 3000;
-unsigned long lastSwitch = 0;
-int currentScreen = 0;
-int frame = 0;
-int daysGoalReached = 0;  // Set externally
+// --- SCREEN ITERATION SETUP ---
+const unsigned long SCREEN_INTERVAL = 3000; // Screen switches every 3 seconds
+unsigned long lastSwitch = 0; // Variable used to store time passed since the screen last switched
+int currentScreen = 0; // Variable used to store which screen is currently displayed
+// --- STREAK LOCAL UPDATES ---
+int currentLocalStreak = 0;
+int longestLocalStreak = 0;
+bool initalized = false;
 
 void initOLED() {
   nicla::leds.begin();
-  // Initialize with I2C addr 0x3C (for most SSD1306)
   if(!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("OLED allocation failed"));
-    // Don't halt - continue without display
-    return;
+    return; // If screen fails to initalize
   }
   
   // Test screen
@@ -98,7 +97,17 @@ void initOLED() {
   oled.setTextColor(SSD1306_WHITE);
   oled.display();
 }
-void drawScreen0() {  // Streak/animation
+
+// --- ANIMATION SCREEN ---
+void drawScreen0(int currentStreak, int longestStreak) { 
+  static unsigned long lastFrameTime = 0;
+  static int screenFrame = 0;
+  if(!initalized) {
+    currentLocalStreak = currentStreak;
+    longestLocalStreak = longestStreak;
+    initalized = true;
+  }
+
   oled.clearDisplay();
   oled.setTextSize(1);
   oled.setTextColor(1);
@@ -106,25 +115,50 @@ void drawScreen0() {  // Streak/animation
   oled.print("Streak");
   oled.setCursor(35, 14);
   oled.setTextSize(5);
-  oled.print(daysGoalReached);
-  if (daysGoalReached > 0) {
-    oled.drawBitmap(70, 8, frames[frame], FRAMEWIDTH, FRAMEHEIGHT, 1);
-  } else {
-    oled.drawBitmap(70, 8, sadface[frame], FRAMEWIDTH, FRAMEHEIGHT, 1);
+  oled.print(currentLocalStreak);
+
+  if (lastFrameTime == 0) {
+    lastFrameTime = millis();
   }
-  frame = (frame + 1) % FRAMECOUNT;
+
+  unsigned long now = millis();
+  unsigned long timePassed = now - lastFrameTime;
+  int framesToAdvance = timePassed / FRAMEDELAY;
+
+  if (millis() - lastFrameTime >= 50) {
+    screenFrame = (screenFrame + 1) % FRAMECOUNT;
+    lastFrameTime += framesToAdvance * FRAMEDELAY;
+  }
+  if (currentLocalStreak > 0) {
+    oled.drawBitmap(70, 8, starAnimation[screenFrame], FRAMEWIDTH, FRAMEHEIGHT, 1);
+  } else {
+    oled.drawBitmap(70, 8, faceAnimation[screenFrame], FRAMEWIDTH, FRAMEHEIGHT, 1);
+  }
+  oled.setCursor(0, 55);
+  oled.setTextSize(1);
+  oled.print("Longest streak: ");
+  oled.println(longestLocalStreak);
+  oled.display();
 }
 
-void drawScreen1(uint32_t steps) {
+// --- STEPS AND BATTERY ---
+void drawScreen1(uint32_t steps, int batteryLevel) {
   oled.clearDisplay();
-  oled.setTextSize(2);
+  oled.setTextSize(1);
   oled.setTextColor(1);
   oled.setCursor(0, 0);
-  oled.print("Steps: ");
+  oled.println("Steps: ");
+  oled.setTextSize(2);
   oled.println(steps);
+  oled.setTextSize(1);
+  oled.println("Battery: ");
+  oled.setTextSize(2);
+  oled.print(batteryLevel);
+  oled.println("%");
 }
 
-void drawScreen2(bool galvanicWorn, bool isWorn) {
+// --- WORN/REMOVED ---
+void drawScreen2(bool isWorn) {
   oled.clearDisplay();
   oled.setTextSize(2);
   oled.setTextColor(1);
@@ -133,26 +167,75 @@ void drawScreen2(bool galvanicWorn, bool isWorn) {
   oled.println(isWorn ? "WORN" : "REMOVED");
 }
 
-void drawScreen3(String time) {
+// --- DAILY GOAL PROGRESS BAR ---
+void drawScreen3(String time, uint32_t wornSeconds, int goalHours, int currentStreak, int longestStreak) {
+  //int goalSeconds = (goalHours * 3600);
+  int goalSeconds = (goalHours * 60); // PROTOYPE ONLY
+  int percent = (wornSeconds * 100) / goalSeconds;
+
+  if (wornSeconds >= goalSeconds) {
+    goalSeconds = wornSeconds;
+  }
+
   oled.clearDisplay();
   oled.setTextSize(1);
   oled.setTextColor(1);
   oled.setCursor(0, 0);
   oled.print("Worn: "); oled.println(time);
-  oled.print("Goal: "); oled.print(4); oled.print("h");
+  oled.print("Goal: "); oled.print(goalHours); oled.println("m");
+  oled.print("Percent: "); oled.print(percent); oled.println("%");
+
+  int barX = 0;
+  int barY = 32;
+  int barW = 125;
+  int barH = 10;
+
+  oled.drawRect(barX, barY, barW, barH, 1);
+
+  int fillW = (wornSeconds * (barW - 2)) / goalSeconds;
+  oled.fillRect(barX + 1, barY + 1, fillW, barH - 2, 1);
+
+  if(goalSeconds == wornSeconds) {
+    currentLocalStreak = currentStreak + 1;
+    if(currentLocalStreak > longestLocalStreak) longestLocalStreak = currentLocalStreak;
+    oled.setCursor(20, 45);
+    oled.println("Goal achieved!");
+    oled.setCursor(28, 55);
+    oled.println("Keep going!");
+  }
 }
 
-void updateDisplay(uint32_t steps, bool galvanicWorn, bool isWorn, String time) {
+// --- ROTATION OF SCREENS ---
+void updateDisplay(uint32_t steps, bool isWorn, String time, uint32_t wornSeconds, int goalHours, int currentStreak, int longestStreak, int batteryLevel) {
   if (millis() - lastSwitch >= SCREEN_INTERVAL) {
     currentScreen = (currentScreen + 1) % 4;
     lastSwitch = millis();
   }
-  
+
   switch (currentScreen) {
-    case 0: drawScreen0(); break;
-    case 1: drawScreen1(steps); break;
-    case 2: drawScreen2(galvanicWorn, isWorn); break;
-    case 3: drawScreen3(time); break;
+    case 0: drawScreen0(currentStreak, longestStreak); break;
+    case 1: drawScreen1(steps, batteryLevel); break;
+    case 2: drawScreen2(isWorn); break;
+    case 3: drawScreen3(time, wornSeconds, goalHours, currentStreak, longestStreak); break;
   }
+  oled.display();
+}
+
+// --- REMINDER TO PATIENT ---
+void displayWarningScreen() {
+  oled.clearDisplay();
+  oled.setTextSize(2);
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setCursor(15, 5);
+  oled.println("REMEMBER");
+  oled.setCursor(50, 25);
+  oled.println("TO");
+  oled.setCursor(35, 45);
+  oled.println("WEAR!");
+  oled.display();
+}
+
+void clearDisplay() {
+  oled.clearDisplay();
   oled.display();
 }
