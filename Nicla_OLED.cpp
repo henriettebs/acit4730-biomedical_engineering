@@ -81,6 +81,10 @@ const byte PROGMEM faceAnimation[][288] = {
 const unsigned long SCREEN_INTERVAL = 3000; // Screen switches every 3 seconds
 unsigned long lastSwitch = 0; // Variable used to store time passed since the screen last switched
 int currentScreen = 0; // Variable used to store which screen is currently displayed
+// --- STREAK LOCAL UPDATES ---
+int currentLocalStreak = 0;
+int longestLocalStreak = 0;
+bool initalized = false;
 
 void initOLED() {
   nicla::leds.begin();
@@ -89,15 +93,20 @@ void initOLED() {
   }
   
   // Test screen
-  //oled.clearDisplay();
+  oled.clearDisplay();
   oled.setTextColor(SSD1306_WHITE);
-  //oled.display();
+  oled.display();
 }
 
 // --- ANIMATION SCREEN ---
 void drawScreen0(int currentStreak, int longestStreak) { 
   static unsigned long lastFrameTime = 0;
   static int screenFrame = 0;
+  if(!initalized) {
+    currentLocalStreak = currentStreak;
+    longestLocalStreak = longestStreak;
+    initalized = true;
+  }
 
   oled.clearDisplay();
   oled.setTextSize(1);
@@ -106,7 +115,7 @@ void drawScreen0(int currentStreak, int longestStreak) {
   oled.print("Streak");
   oled.setCursor(35, 14);
   oled.setTextSize(5);
-  oled.print(currentStreak);
+  oled.print(currentLocalStreak);
 
   if (lastFrameTime == 0) {
     lastFrameTime = millis();
@@ -120,7 +129,7 @@ void drawScreen0(int currentStreak, int longestStreak) {
     screenFrame = (screenFrame + 1) % FRAMECOUNT;
     lastFrameTime += framesToAdvance * FRAMEDELAY;
   }
-  if (currentStreak > 0) {
+  if (currentLocalStreak > 0) {
     oled.drawBitmap(70, 8, starAnimation[screenFrame], FRAMEWIDTH, FRAMEHEIGHT, 1);
   } else {
     oled.drawBitmap(70, 8, faceAnimation[screenFrame], FRAMEWIDTH, FRAMEHEIGHT, 1);
@@ -128,7 +137,7 @@ void drawScreen0(int currentStreak, int longestStreak) {
   oled.setCursor(0, 55);
   oled.setTextSize(1);
   oled.print("Longest streak: ");
-  oled.println(longestStreak);
+  oled.println(longestLocalStreak);
   oled.display();
 }
 
@@ -159,8 +168,9 @@ void drawScreen2(bool isWorn) {
 }
 
 // --- DAILY GOAL PROGRESS BAR ---
-void drawScreen3(String time, uint32_t wornSeconds, int goalHours) {
-  int goalSeconds = (goalHours * 3600);
+void drawScreen3(String time, uint32_t wornSeconds, int goalHours, int currentStreak, int longestStreak) {
+  //int goalSeconds = (goalHours * 3600);
+  int goalSeconds = (goalHours * 60); // PROTOYPE ONLY
   int percent = (wornSeconds * 100) / goalSeconds;
 
   if (wornSeconds >= goalSeconds) {
@@ -172,7 +182,7 @@ void drawScreen3(String time, uint32_t wornSeconds, int goalHours) {
   oled.setTextColor(1);
   oled.setCursor(0, 0);
   oled.print("Worn: "); oled.println(time);
-  oled.print("Goal: "); oled.print(goalHours); oled.println("h");
+  oled.print("Goal: "); oled.print(goalHours); oled.println("m");
   oled.print("Percent: "); oled.print(percent); oled.println("%");
 
   int barX = 0;
@@ -186,6 +196,8 @@ void drawScreen3(String time, uint32_t wornSeconds, int goalHours) {
   oled.fillRect(barX + 1, barY + 1, fillW, barH - 2, 1);
 
   if(goalSeconds == wornSeconds) {
+    currentLocalStreak = currentStreak + 1;
+    if(currentLocalStreak > longestLocalStreak) longestLocalStreak = currentLocalStreak;
     oled.setCursor(20, 45);
     oled.println("Goal achieved!");
     oled.setCursor(28, 55);
@@ -204,25 +216,8 @@ void updateDisplay(uint32_t steps, bool isWorn, String time, uint32_t wornSecond
     case 0: drawScreen0(currentStreak, longestStreak); break;
     case 1: drawScreen1(steps, batteryLevel); break;
     case 2: drawScreen2(isWorn); break;
-    case 3: drawScreen3(time, wornSeconds, goalHours); break;
+    case 3: drawScreen3(time, wornSeconds, goalHours, currentStreak, longestStreak); break;
   }
-  oled.display();
-}
-
-// REMOVE THIS ONE!!!
-void displayTroubleShoot(bool temp, bool motion, bool galvanic, int skinRaw) {
-  oled.clearDisplay();
-  oled.setTextSize(1);
-  oled.setTextColor(SSD1306_WHITE);
-  oled.setCursor(0,0);
-  oled.print("Temp: ");
-  oled.println(temp);
-  oled.print("Motion: ");
-  oled.println(motion);
-  oled.print("Skin contact: ");
-  oled.println(galvanic);
-  oled.println("Skin value");
-  oled.println(skinRaw);
   oled.display();
 }
 

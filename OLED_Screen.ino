@@ -17,20 +17,19 @@ BLEStringCharacteristic dailyTargetChar("19b10005-e8f2-537e-4f6c-d104768a1214", 
 // Day tracking
 String lastKnownDate = "";   // Variable used in loop for clearing locally stored data on new day
 String currentDate   = ""; // Variable used in loop for comparing if locally stored date is matching date sent from Python
-String currentTime = ""; // UNSURE!! 
+String currentTime = ""; // Variable used to check if warning should blink
 // Streak tracking
 int currentStreak = 0;
 int longestStreak = 0;
 // Battery
 int oldBatteryLevel = 0;
 int batteryLevel = 0;
-float voltage = 0.0;
-bool runsOnBattery = false;
-// --- SENSOR LATCH TIMERS ---
+// Sensor latch timers
 const uint32_t LATCH_DURATION_MS = 5UL * 60 * 1000; // 5 minutes
 uint32_t activeLatchUntil  = 0;
 
-// Sensors
+
+// --- SENSORS ---
 SensorXYZ accel(SENSOR_ID_ACC);
 Sensor temp(SENSOR_ID_TEMP); 
 Sensor stepCounter(SENSOR_ID_STC);
@@ -40,13 +39,18 @@ enum DeviceState {
   IDLE,
   ACTIVE
 };
-
 DeviceState currentState = IDLE;
 bool isWorn = false;
 
 // Data Tracking
 const uint32_t LOG_INTERVAL = 1*5*1000; // Sent every 5 seconds for testing
 uint32_t lastLog = 0;
+uint32_t lastTempCheck = 0;
+bool dateReceived = false;
+bool timeReceived = false;
+bool streakReceived = false;
+bool dailyTargetReceived = false;
+bool bleValuesInitalized = false;
 
 struct TempLog {
   float max_delta;
@@ -62,58 +66,62 @@ struct AccelData {
 };
 
 // Global temperature tracking
-TempLog tempLog = {0, 0, 0};
-CircularBuffer<float,12> temp_buff;
-bool tempInitialized = false;
 const int TEMP_SAMPLES = 12;
-const float TEMP_DELTA_THRESHOLD = 0.2;
+const float TEMP_DELTA_THRESHOLD_ON = 0.1;
+const float TEMP_DELTA_THRESHOLD_OFF = -0.16;
+TempLog tempLog = {0, 0, 0};
+CircularBuffer<float,TEMP_SAMPLES> temp_buff;
 bool tempRiseActive = false; // True = temp rose 0.2 degrees, waiting for fall
 bool tempRiseWorn = false;
 
 // Global accelerometer tracking
+const int ACCEL_SAMPLES = 75;
+const float ACCEL_THRESHOLD_LOW = 0.05;
+const float ACCEL_THRESHOLD_HIGH = 1.5;
 AccelData accelData = {0, 0, 0, 0};
-CircularBuffer<float,150> accel_buff;
+CircularBuffer<float,ACCEL_SAMPLES> accel_buff;
 bool motionWorn = false;
+float accelMean = 0;
 
+// Skin contact tracking
+const int GALVANIC_WINDOW = 10;
+const int GALVANIC_ON_THRESHOLD = 8; // 80% must be true to activate
+const int GALVANIC_OFF_THRESHOLD = 3; // Below 30% to deactivate
+const int GALVANIC_SKIN_THRESHOLD = 300; // Calibrate on hardware
+bool galvanicSmoothed = false; // State persistence
+CircularBuffer<int,10> galvanic_buff;
 
 // Step-counter smoothing
 uint32_t lastStepCounterValue = 0;
 uint32_t stepTotal = 0;
 const uint32_t STEP_MAX_DELTA_PER_INTERVAL = 100; // ignore spikes larger than this
 
-// --- WORN TIME TRACKING ---
+// Worn time tracking
 uint32_t wornSeconds = 0;          // Total worn seconds today
 uint32_t lastWornTick = 0;         // millis() timestamp of last worn-time update
-int goalHours = 0; 
+int goalHours = 0; // Value retrieved from BLE connection
 
-// --- VOTE-BASED DEBOUNCE ---
-const int VOTE_WINDOW = 40;
-const float WEAR_THRESHOLD = 0.70;
-const float REMOVE_THRESHOLD = 0.30;
-bool wornHistory[40] = {false};
-int voteIndex = 0;
+// Votebased debounce
+const int WORN_WINDOW = 40;
+const float WEAR_THRESHOLD = 0.70; // Worn score needs to be over 70% to trigger worn
+const float REMOVE_THRESHOLD = 0.30; // Worn score needs to fall below 30% to trigger not worn
 
+CircularBuffer<bool,WORN_WINDOW> worn_buff;
+
+// --- WORN SCORE ---
 float getWornScore() {
   int count = 0;
-  String wornHistoryValues = "";
-  for (int i = 0; i < VOTE_WINDOW; i++) {
-    if (wornHistory[i]) {
+  for (int i = 0; i < WORN_WINDOW; i++) {
+    if (worn_buff[i]) {
       count++;
-      wornHistoryValues += wornHistory[i];
-      wornHistoryValues += ", ";
     }
   }
-  Serial.print("Worn history: "); Serial.println(wornHistoryValues);
-  return (float)count / VOTE_WINDOW;
+  return (float)count / WORN_WINDOW;
 }
 
+// --- TEMPERATURE ---
 bool updateTempState(float currentTemp) {
-  uint32_t now = millis();
   tempLog.current_temp = currentTemp;
-  float delta = 0;
-
-  Serial.print("New currentTemp: "); Serial.print(now); Serial.print(" - "); Serial.println(currentTemp);
-
   temp_buff.unshift(currentTemp);
 
   String tempValues = "";
@@ -121,18 +129,10 @@ bool updateTempState(float currentTemp) {
     return false;
   }
 
-  for(int i = 0; i < TEMP_SAMPLES; i++) {
-    tempValues += String(temp_buff[i]);
-    tempValues += ", ";
-  }
-  Serial.print("Temp buffer "); Serial.println(tempValues);
-
-  delta = temp_buff.first() - temp_buff.last();
-  Serial.print("DELTA: "); Serial.println(delta);
-
+  float delta = temp_buff.first() - temp_buff.last();
+  Serial.print("First - last: "); Serial.print(temp_buff.first()); Serial.print(" - "); Serial.print(temp_buff.last()); Serial.print("= DELTA: "); Serial.println(delta);
   if (!tempRiseActive) {
-    // Found valid rise!
-    if (delta >= TEMP_DELTA_THRESHOLD) {
+    if (delta >= TEMP_DELTA_THRESHOLD_ON) { // Found valid rise!
       tempRiseActive = true;
       tempLog.max_delta = delta;
       return true; // Now active
@@ -140,10 +140,8 @@ bool updateTempState(float currentTemp) {
     return false;
   }
 
-  // --- FALL DETECTION (active, waiting for fall) ---
   if (tempRiseActive) {
-    // Found the fall
-    if (delta <= -TEMP_DELTA_THRESHOLD) {
+    if (delta <= TEMP_DELTA_THRESHOLD_OFF) { // Found the fall
       tempRiseActive = false;
       tempLog.min_delta = delta;
       return false;
@@ -151,8 +149,9 @@ bool updateTempState(float currentTemp) {
     return true; // Still active
   }
   return false;
+  delay(5000);
 }
-
+// --- ACCELEROMETER ---
 bool updateAccelData() {
   accelData.x = accel.x() / 1000.0;
   accelData.y = accel.y() / 1000.0;
@@ -160,7 +159,6 @@ bool updateAccelData() {
   float vm_magnitude = sqrt(accelData.x*accelData.x + accelData.y*accelData.y + accelData.z*accelData.z);
 
   accel_buff.unshift(vm_magnitude);
-
   if(!accel_buff.isFull()){
     return false;
   }
@@ -171,6 +169,7 @@ bool updateAccelData() {
     sum += accel_buff[i];
   }
   float mean = sum / size;
+  accelMean = mean;
 
   float variance = 0;
   for (int i = 0; i < size; i++) {
@@ -180,42 +179,23 @@ bool updateAccelData() {
   variance /= (size - 1);
 
   float sd_vm = sqrt(variance);
-  Serial.print("sd_vm: "); Serial.print(sd_vm); Serial.print(", mean: "); Serial.println(mean);
-  
-  // Store the standard deviation as the meaningful metric
   accelData.vm = sd_vm;
 
-  // Worn-on-wrist check: moderate variance indicates wrist movement
-  // - too low: stationary (table)
-  // - too high: extreme shaking (unlikely for wrist wear)
-  return (sd_vm > 0.025) && (sd_vm < 1.5);
+  return (sd_vm > ACCEL_THRESHOLD_LOW) && (sd_vm < ACCEL_THRESHOLD_HIGH);
 }
-
-const int GALVANIC_WINDOW = 10;
-const int GALVANIC_ON_THRESHOLD = 8; // 80% must be true to activate
-const int GALVANIC_OFF_THRESHOLD = 3; // Below 30% to deactivate
-const int GALVANIC_SKIN_THRESHOLD = 300; // Calibrate on hardware
-
-bool galvanicHistory[GALVANIC_WINDOW] = {false};
-int galvanicIndex = 0;
-bool galvanicSmoothed = false; // State persistence
-
-CircularBuffer<int,10> galvanic_buff;
-
+// --- GALVANIC ---
 int updateGalvanic() {
   int rawValue = analogRead(A0); // Reads from one of two analog pins on NSME, NIcla boards ADC converts to 10 bits (default)
   bool isContact = (rawValue > GALVANIC_SKIN_THRESHOLD);
 
-  galvanicHistory[galvanicIndex % GALVANIC_WINDOW] = isContact;
-  galvanicIndex++;
-
+  galvanic_buff.unshift(isContact);
   int count = 0;
   for (int i = 0; i < GALVANIC_WINDOW; i++) {
-    if(galvanicHistory[i]) count++;
+    if(galvanic_buff[i]) count++;
   }
 
-  // Hysteresis: need 80% to turn ON, only 30% to turn OFF
-  if (galvanicSmoothed && count < GALVANIC_OFF_THRESHOLD) {
+  // Hysteresis: need 80% to turn ON, less than 30% to turn OFF
+  if (galvanicSmoothed && count <= GALVANIC_OFF_THRESHOLD) {
     galvanicSmoothed = false;
   } else if (!galvanicSmoothed && count >= GALVANIC_ON_THRESHOLD) {
     galvanicSmoothed = true;
@@ -226,8 +206,7 @@ int updateGalvanic() {
 bool getSmoothedGalvanic() {
   return galvanicSmoothed;
 }
-
-// Read and smooth step counter values, ignoring large spikes
+// --- SMOOTH STEP COUNTER ---
 uint32_t updateStepTotal() {
   uint32_t rawSteps = (uint32_t)stepCounter.value();
   uint32_t deltaSteps = 0;
@@ -236,27 +215,16 @@ uint32_t updateStepTotal() {
     if (rawSteps >= lastStepCounterValue) {
       deltaSteps = rawSteps - lastStepCounterValue;
     } else {
-      // Counter wrapped or reset; treat the new value as delta
       deltaSteps = rawSteps;
     }
   }
-
   lastStepCounterValue = rawSteps;
-  // Ignore absurd spikes
-  if (deltaSteps <= STEP_MAX_DELTA_PER_INTERVAL) {
+  if (deltaSteps <= STEP_MAX_DELTA_PER_INTERVAL) { // Ignore large spikes
     stepTotal += deltaSteps;
   }
   return stepTotal;
 }
-
-// Helper: format seconds as "Xh Ym Zs" string
-String formatWornTime(uint32_t seconds) {
-  uint32_t hours   = seconds / 3600;
-  uint32_t minutes = (seconds % 3600) / 60;
-  uint32_t secs    = seconds % 60;
-  return String(hours) + "h " + String(minutes) + "m " + String(secs) + "s";
-}
-
+// --- WARNING DISPLAYED ---
 void checkAndBlinkWarning() {
   uint32_t now = millis();
   int currentHour = parseHourFromTimeChar();
@@ -273,8 +241,7 @@ void checkAndBlinkWarning() {
   if (now - lastBlinkCheck > 3000) {
     lastBlinkCheck = now;
 
-    if(wornSeconds == 0 && currentHour >= 16 && currentHour <= 19) { // Only show warning if orthosis has not been worn, and it's between 4PM and 8PM
-
+    if(wornSeconds == 0 && currentHour >= 16 && currentHour < 20) { // Only show warning if orthosis has not been worn, and it's between 4PM and 7PM
       if(blinkUntil == 0) {
         blinkUntil = now + (5 * 60 * 1000); // 5 minutes blink
       }
@@ -289,34 +256,69 @@ void checkAndBlinkWarning() {
         String pauseUntil = formatWornTime(pauseSeconds);
         clearDisplay();
       }
-      
     } else {
       blinkUntil = 0;
       pauseBlinkUntil = 0;
     }
   }
 }
+// --- BATTERY ---
+void updateBatteryLevel() {
+  batteryLevel = nicla::getBatteryVoltagePercentage();
 
+  if (batteryLevel != oldBatteryLevel) {       
+    oldBatteryLevel = batteryLevel;             
+  }
+}
+
+// --- BLE CONNECTION VALUES ---
+void getBLEConnectionValues() {
+  if (!dateReceived && dateChar.written()) {
+    currentDate = dateChar.value();
+    dateReceived = true;
+  }
+  if (!timeReceived && timeChar.written()) {
+    currentTime = timeChar.value();
+    timeReceived = true;
+  }
+  if (!streakReceived && streakChars.written()) {
+    String streakData = streakChars.value();
+    int commaIndex = streakData.indexOf(',');
+    if (commaIndex > 0) {
+      currentStreak = streakData.substring(0, commaIndex).toInt();
+      longestStreak = streakData.substring(commaIndex + 1).toInt();
+      streakReceived = true;
+    }
+  }
+  if (!dailyTargetReceived && dailyTargetChar.written()){
+    String goalReceived = dailyTargetChar.value();
+    goalHours = goalReceived.toInt();
+    dailyTargetReceived = true;
+  }
+  if(dateReceived && timeReceived && streakReceived && dailyTargetReceived) {
+    bleValuesInitalized = true;
+  }
+}
+
+// --- HELPER FUNCTIONS ---
+// Helper function: format seconds as "Xh Ym Zs" string
+String formatWornTime(uint32_t seconds) {
+  uint32_t hours   = seconds / 3600;
+  uint32_t minutes = (seconds % 3600) / 60;
+  uint32_t secs    = seconds % 60;
+  return String(hours) + "h " + String(minutes) + "m " + String(secs) + "s";
+}
+
+// Helper function: Get hour value from time string
 int parseHourFromTimeChar() {
-  String timeString = timeChar.value();
+  String timeString = currentTime;
 
   if(timeString.length() >= 2){
     return timeString.substring(0,2).toInt();
   }
   return -1; // Error
 }
-
-void updateBatteryLevel() {
-  batteryLevel = nicla::getBatteryVoltagePercentage();  // this command return the battery percentage
-  voltage = nicla::getCurrentBatteryVoltage();
-  runsOnBattery = nicla::runsOnBattery();
-
-  if (batteryLevel != oldBatteryLevel) {       // if the battery level has changed
-    batteryLevelChar.writeValue(batteryLevel);  // and update the battery level characteristic
-    oldBatteryLevel = batteryLevel;             // save the level for next comparison
-  }
-}
-
+// Helper function: Clear all data as reset for a new day
 void clearDataForNewDay() {
   wornSeconds = 0;
   stepTotal = 0;
@@ -325,8 +327,21 @@ void clearDataForNewDay() {
   accelData = {0, 0, 0, 0};
   temp_buff.clear();
   accel_buff.clear();
+  galvanic_buff.clear();
+  worn_buff.clear();
+  clearDataOnDisconnect();
 }
 
+// Helper function: Clear data on BLE disconnect
+void clearDataOnDisconnect() {
+  dateReceived = false;
+  timeReceived = false;
+  streakReceived = false;
+  dailyTargetReceived = false;
+  bleValuesInitalized = false;
+}
+
+// --- SETUP ---
 void setup() {
   Serial.begin(115200);
   uint32_t serialStart = millis();
@@ -340,8 +355,8 @@ void setup() {
   // Initialize Nicla Hardware
   nicla::begin();
   nicla::leds.begin();
-  nicla::setBatteryNTCEnabled(false);  // Set to false if your battery doesn't have an NTC thermistor.
-  nicla::enableCharging(100);  // enable the battery charger and define the charging current in mA
+  nicla::setBatteryNTCEnabled(false);  // Battery doesn't have an NTC thermistor connected
+  nicla::enableCharging(100);  // enable the battery charger for a 100 mA charging current
   initOLED(); // OLED setup
   
   // Initialize Sensor Hub
@@ -368,86 +383,46 @@ void setup() {
   myNiclaService.addCharacteristic(timeChar);
   myNiclaService.addCharacteristic(streakChars);
   myNiclaService.addCharacteristic(batteryLevelChar);
-  batteryLevelChar.writeValue(oldBatteryLevel);        // set initial value for this characteristic
   myNiclaService.addCharacteristic(dailyTargetChar);
   BLE.addService(myNiclaService);
   BLE.advertise();
 
-  nicla::leds.setColor(blue); // Blue = Advertising
+  nicla::leds.setColor(blue);
 }
-
+// --- LOOP ---
 void loop() {
   BHY2.update();
   BLEDevice central = BLE.central();
 
   if(central && central.connected()) {
     nicla::leds.setColor(green);
-    // Retrieve and save values from Python connection
-    if (dateChar.written()) {
-        currentDate = dateChar.value();
+    if(!bleValuesInitalized) {
+      getBLEConnectionValues();
+      updateBatteryLevel();
     }
-    if (timeChar.written()) {
-      currentTime = timeChar.value();
-    }
-    if (streakChars.written()) {
-      String streakData = streakChars.value();
-      int commaIndex = streakData.indexOf(',');
-      if (commaIndex > 0) {
-        currentStreak = streakData.substring(0, commaIndex).toInt();
-        longestStreak = streakData.substring(commaIndex + 1).toInt();
-      }
-    }
-    if (dailyTargetChar.written()){
-      String goalReceived = dailyTargetChar.value();
-      goalHours = goalReceived.toInt();
-    }
-
-    updateBatteryLevel();
     // New day detected → reset worn time
     if (currentDate != "" && lastKnownDate != "" && currentDate != lastKnownDate) {
       clearDataForNewDay();
       lastKnownDate = currentDate;
     }
-
-    wornHistory[voteIndex % VOTE_WINDOW] = isWorn;
-    voteIndex++;
-    float wornScore = getWornScore();
-    uint32_t now = millis();
-
-    motionWorn   = updateAccelData();
-
-    int galvanicScore = updateGalvanic();
-    bool galvanicWorn = getSmoothedGalvanic(); 
-
-
-    if (lastWornTick == 0) lastWornTick = now; // First tick after becoming worn
-    uint32_t tickDelta = now - lastWornTick;
-    if (tickDelta >= 1000) { // Accumulate in 1-second steps
-              wornSeconds += tickDelta / 1000;
-              lastWornTick += (tickDelta / 1000) * 1000; // Keep sub-second remainder
-            }
-            uint32_t steps = updateStepTotal();
-            String timeWorn = formatWornTime(wornSeconds);
-    if (millis() - lastLog >= LOG_INTERVAL) {
-      lastLog = millis();
+    uint32_t nowTemp = millis();
+    if (nowTemp - lastTempCheck >= LOG_INTERVAL){
+      lastTempCheck = nowTemp;
       float currentTemp = temp.value();
-
       tempRiseWorn = updateTempState(currentTemp);
-      isWorn = (motionWorn && galvanicWorn) || (tempRiseWorn && galvanicWorn);
-      String dataString = String(steps) + ", {" +
-                          String(tempLog.max_delta, 3) + "," +
-                          String(tempLog.current_temp, 3) + "," +
-                          String(tempLog.min_delta, 3) + "}," +
-                          String(tempRiseWorn) + "," +
-                          String(accelData.vm, 3) + "," +
-                          String(motionWorn) + "," +
-                          String(galvanicScore) + "," +
-                          String(galvanicWorn) + "," +
-                          (isWorn ? "WORN" : "NOT_WORN") + "," +
-                          timeWorn; //new
-                
-      myDataChar.writeValue(dataString);
     }
+    
+    motionWorn = updateAccelData();
+    int galvanicScore = updateGalvanic();
+    bool galvanicWorn = getSmoothedGalvanic();
+
+    uint32_t steps = updateStepTotal();
+    String timeWorn = formatWornTime(wornSeconds);
+
+    worn_buff.unshift(isWorn);
+    float wornScore = getWornScore();
+
+    isWorn = (motionWorn && galvanicWorn) || (tempRiseWorn && galvanicWorn);
 
     switch(currentState) {
       case IDLE:
@@ -456,10 +431,9 @@ void loop() {
           activeLatchUntil = millis() + LATCH_DURATION_MS; // Latch for 5 min from entry
           lastWornTick = millis();
         } else {
-          nicla::leds.setColor(red);
+          checkAndBlinkWarning();
           int skinRaw = analogRead(A0);
-          displayTroubleShoot(tempRiseWorn, motionWorn, galvanicWorn, skinRaw);
-          //checkAndBlinkWarning();
+          displayTroubleShoot(tempRiseWorn, tempLog.current_temp, motionWorn, accelData.vm, galvanicWorn, skinRaw);
         }
         break;
 
@@ -472,21 +446,21 @@ void loop() {
           lastWornTick = 0; // Reset tick reference when device removed
           clearDisplay();
         } else {
-            // --- Worn-time accumulation ---
+            // Worn-time accumulation
             uint32_t now = millis();
-            /*if (lastWornTick == 0) lastWornTick = now; // First tick after becoming worn
+            if (lastWornTick == 0) lastWornTick = now; // First tick after becoming worn
             uint32_t tickDelta = now - lastWornTick;
-            if (tickDelta >= 1000) { // Accumulate in 1-second steps
+            if (tickDelta >= 1000) {
               wornSeconds += tickDelta / 1000;
-              lastWornTick += (tickDelta / 1000) * 1000; // Keep sub-second remainder
+              lastWornTick += (tickDelta / 1000) * 1000;
             }
             uint32_t steps = updateStepTotal();
             String timeWorn = formatWornTime(wornSeconds);
-
             updateDisplay(steps, isWorn, timeWorn, wornSeconds, goalHours, currentStreak, longestStreak, oldBatteryLevel);
             // Periodic data gathering
-              if (millis() - lastLog >= LOG_INTERVAL) {
-                lastLog = millis();      
+              if (now - lastLog >= LOG_INTERVAL) {
+                lastLog = now;
+                dateReceived = false;
 
                 String dataString = String(steps) + ", {" +
                                     String(tempLog.max_delta, 3) + "," +
@@ -494,15 +468,15 @@ void loop() {
                                     String(tempLog.min_delta, 3) + "}," +
                                     String(tempRiseWorn) + "," +
                                     String(accelData.vm, 3) + "," +
+                                    String(accelMean) + "," +
                                     String(motionWorn) + "," +
                                     String(galvanicScore) + "," +
                                     String(galvanicWorn) + "," +
                                     (isWorn ? "WORN" : "NOT_WORN") + "," +
-                                    timeWorn + "," + 
-                                    oldBatteryLevel; //new
+                                    timeWorn;
                 
                 myDataChar.writeValue(dataString);
-              }*/
+              }
           }
         break;
       }
@@ -510,5 +484,6 @@ void loop() {
       BLE.advertise();
       nicla::leds.setColor(blue);
       clearDisplay();
+      clearDataOnDisconnect();
     }
 }

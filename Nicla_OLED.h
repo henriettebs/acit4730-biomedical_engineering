@@ -10,7 +10,6 @@ extern int frame;
 
 void initOLED();
 void updateDisplay(uint32_t steps, bool isWorn, String time, uint32_t wornSeconds, int goalHours, int currentStreak, int longestStreak, int batteryLevel);
-void displayTroubleShoot(bool temp, bool motion, bool galvanic, int skinRaw);
 void displayWarningScreen();
 void clearDisplay();
 
