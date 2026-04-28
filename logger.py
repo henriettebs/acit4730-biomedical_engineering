@@ -9,7 +9,7 @@ DEVICE_ADDRESS = "A8:5B:66:79:44:77"
 
 # This UUID must match your Arduino BLE characteristic
 DATA_CHAR_UUID = "19b10001-e8f2-537e-4f6c-d104768a1214"
-FILE_NAME = "sensor_data.csv"
+FILE_NAME = "worn_day_data.csv"
 
 def handle_notification(sender, data):
     """
@@ -39,7 +39,7 @@ async def main():
         async with BleakClient(DEVICE_ADDRESS) as client:
             if client.is_connected:
                 print("✅ Connected! Listening for sensor updates...")
-                print(f"📂 Data will be saved to: {FILE_NAME}")
+                print(f"�� Data will be saved to: {FILE_NAME}")
                 
                 # Start listening for notifications
                 await client.start_notify(DATA_CHAR_UUID, handle_notification)
